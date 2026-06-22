@@ -54,6 +54,17 @@ def current_alerts(cfg: Config) -> list[dict[str, Any]]:
     return [{"cdn": r[0], "state": r[1], "tier": r[2]} for r in rows]
 
 
+def known_cdns(cfg: Config) -> list[str]:
+    """CDNs observadas na Silver — base para saúde, mesmo sem nenhum alerta."""
+    con = _con(cfg)
+    if "silver_qoe" not in [r[0] for r in con.execute("SHOW TABLES").fetchall()]:
+        return []
+    rows = con.execute(
+        "SELECT DISTINCT cdn FROM silver_qoe WHERE cdn IS NOT NULL ORDER BY cdn"
+    ).fetchall()
+    return [r[0] for r in rows]
+
+
 def ccv_by_region(cfg: Config) -> list[dict[str, Any]]:
     """CCV (pico) por região, da Gold."""
     path = os.path.join(cfg.paths.gold, "gold_ccv.parquet")

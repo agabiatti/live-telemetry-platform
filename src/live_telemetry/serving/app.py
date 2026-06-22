@@ -66,16 +66,19 @@ with tab_silver:
 
         # --- Alerta de degradação de CDN (dinâmico) ---
         st.subheader("Saúde das CDNs")
+
+        cdns = data.known_cdns(cfg)
+        alert_by_cdn = {a["cdn"]: a for a in alerts}
         firing = [a for a in alerts if a["state"] == "FIRING"]
-        if firing:
-            for a in firing:
-                st.error(f"🔴 **{a['cdn']}** degradada — alerta **{a['tier']}** ativo")
-        elif alerts:
-            cols = st.columns(len(alerts))
-            for col, a in zip(cols, alerts):
-                col.success(f"🟢 {a['cdn']}\n\n{a['state']}")
-        else:
-            st.info("Sem dados de alerta ainda (suba o Silver).")
+        for a in firing:
+            st.error(f"🔴 **{a['cdn']}** degradada — disparo de alerta **{a['tier']}** ativo")
+        healthy = [c for c in cdns if alert_by_cdn.get(c, {}).get("state") != "FIRING"]
+        if healthy:
+            cols = st.columns(len(healthy))
+            for col, cdn in zip(cols, healthy):
+                col.success(f"🟢 {cdn}\n\nsaudável")
+        elif not cdns:
+            st.info("Sem dados de CDN ainda (suba o Silver).")
 
         # --- Views únicas por minuto ---
         st.subheader("Views únicas por minuto (UTC)")
