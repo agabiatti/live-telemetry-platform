@@ -1,0 +1,29 @@
+# Override de DEV (carregado automaticamente pelo compose).
+# Bind-mount do código → editar no host, rodar no container, sem rebuild de imagem.
+# Para o build final/limpo, rode: docker compose -f docker-compose.yml up
+
+services:
+  silver:
+    volumes:
+      - ./data:/app/data
+      - ./src:/app/src
+      - ./CONTRACTS:/app/CONTRACTS
+      - ./OBSERVABILITY:/app/OBSERVABILITY
+  streamlit:
+    volumes:
+      - ./data:/app/data
+      - ./src:/app/src
+  producer:
+    volumes:
+      - ./data:/app/data
+      - ./src:/app/src
+      - ./CONTRACTS:/app/CONTRACTS
+  bronze:
+    volumes:
+      - ./data:/app/data
+      - ./src:/app/src
+  gold:
+    volumes:
+      - ./data:/app/data
+      - ./src:/app/src
+      - ./dbt:/app/dbt

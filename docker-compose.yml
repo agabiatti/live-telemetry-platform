@@ -1,0 +1,97 @@
+# Lambda em containers. `docker compose up` sobe infra + serviços always-on.
+# Jobs batch (bronze/gold) e o producer rodam sob profile, disparados pelo Makefile.
+#
+# Always-on (default): redpanda, console, silver, streamlit
+# profile pipeline:     producer (one-shot)
+# profile batch:        bronze, gold (one-shot)
+
+services:
+  redpanda:
+    image: redpandadata/redpanda:v24.2.7
+    command:
+      - redpanda
+      - start
+      - --smp=1
+      - --overprovisioned
+      - --node-id=0
+      - --kafka-addr=PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr=PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9092
+      - --pandaproxy-addr=0.0.0.0:8082
+      - --schema-registry-addr=0.0.0.0:8081
+      - --check=false
+    ports:
+      - "9092:9092"   # Kafka (host)
+      - "8081:8081"   # Schema Registry
+      - "8082:8082"   # pandaproxy
+      - "9644:9644"   # admin
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true'"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  console:
+    image: redpandadata/console:v2.7.2
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_BROKERS: redpanda:29092
+      KAFKA_SCHEMAREGISTRY_ENABLED: "true"
+      KAFKA_SCHEMAREGISTRY_URLS: http://redpanda:8081
+
+  silver:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    env_file: [.env]
+    volumes:
+      - ./data:/app/data
+    command: ["python", "-m", "live_telemetry.silver.app"]
+
+  streamlit:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    env_file: [.env]
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+    command: ["streamlit", "run", "src/live_telemetry/serving/app.py", "--server.address=0.0.0.0"]
+
+  producer:
+    build: .
+    profiles: ["pipeline"]
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    env_file: [.env]
+    volumes:
+      - ./data:/app/data
+    command: ["python", "-m", "live_telemetry.ingestion.producer"]
+
+  bronze:
+    build: .
+    profiles: ["batch"]
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    env_file: [.env]
+    volumes:
+      - ./data:/app/data
+    command: ["python", "-m", "live_telemetry.bronze.job"]
+
+  gold:
+    build: .
+    profiles: ["batch"]
+    env_file: [.env]
+    volumes:
+      - ./data:/app/data
+    command: ["python", "-m", "live_telemetry.gold.run"]
