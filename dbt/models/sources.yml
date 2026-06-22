@@ -1,0 +1,11 @@
+version: 2
+
+sources:
+  - name: bronze
+    description: "Tabelas carregadas do Bronze Delta (e ad_decisions cru) pelo loader gold.run."
+    schema: main
+    tables:
+      - name: src_player_events
+      - name: src_scte35_markers
+      - name: src_content_metadata
+      - name: src_ad_decisions

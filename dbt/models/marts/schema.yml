@@ -1,0 +1,43 @@
+version: 2
+
+models:
+  - name: gold_session_window_qoe
+    description: "Métricas QoE por sessão × janela de 1 min (verdade batch, dedupe global)."
+    columns:
+      - name: window_key
+        description: "Chave natural session_id|window_start."
+        tests: [unique, not_null]
+      - name: session_id
+        tests: [not_null]
+      - name: window_start
+        tests: [not_null]
+      - name: rebuffering_ratio
+        tests: [not_null]
+      - name: session_complete
+        tests: [not_null]
+
+  - name: gold_ccv
+    description: "Espectadores simultâneos por janela × região × device × CDN."
+    columns:
+      - name: ccv
+        tests: [not_null]
+
+  - name: gold_ad_impact
+    description: "Impacto comercial por marker SCTE-35 (reconciliação ad↔audiência)."
+    columns:
+      - name: event_id_scte
+        tests: [not_null]
+      - name: break_type
+        tests:
+          - accepted_values:
+              values: ["commercial", "blackout"]
+
+  - name: gold_ad_creatives
+    description: "Detalhe de criativos por break SCTE-35: anunciante/criativo que rodou."
+    columns:
+      - name: event_id_scte
+        tests: [not_null]
+      - name: advertiser_name
+        tests: [not_null]
+      - name: creative_id
+        tests: [not_null]
