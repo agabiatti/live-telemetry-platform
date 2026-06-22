@@ -38,7 +38,7 @@ gold: ## Roda o batch Gold (dbt → Parquet)
 compact: ## Manutenção: compacta + vacuum os small files do Silver (acelera o dashboard)
 	docker compose run --rm --no-deps silver python -m live_telemetry.silver.compact
 
-demo: up producer bronze gold ## Pipeline ponta a ponta
+demo: up producer bronze gold compact ## Pipeline ponta a ponta
 	@echo ""
 	@echo "  dashboard: http://localhost:8501"
 	@echo "  console:   http://localhost:8080"
