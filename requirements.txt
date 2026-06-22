@@ -1,0 +1,26 @@
+# Pins iniciais — verificar resolução no primeiro `docker compose build` (task #1).
+# Bytewax e deltalake têm APIs que mudam entre minors: pinar é proposital (reprodutibilidade/NFR).
+
+# Broker / contratos
+confluent-kafka==2.5.3
+fastavro==1.9.5
+
+# Streaming (Silver)
+bytewax==0.21.1
+
+# Lake / batch
+deltalake==0.18.2
+duckdb==1.1.1
+dbt-duckdb==1.8.3
+pyarrow==17.0.0
+pandas==2.2.2
+
+# Serving
+streamlit==1.38.0
+
+# Plataforma
+pyyaml==6.0.2
+structlog==24.4.0
+
+# Testes
+pytest==8.3.3
