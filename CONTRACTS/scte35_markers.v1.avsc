@@ -1,0 +1,23 @@
+{
+  "type": "record",
+  "name": "Scte35Marker",
+  "namespace": "com.challenge.lts.scte35",
+  "doc": "Stream B — cue tones SCTE-35 (fronteiras de programa / quebras comerciais).",
+  "fields": [
+    {"name": "marker_id", "type": "string"},
+    {"name": "channel", "type": "string"},
+    {"name": "splice_command", "type": {
+       "type": "enum", "name": "SpliceCommand",
+       "symbols": ["splice_insert", "time_signal"]
+     }},
+    {"name": "event_id_scte", "type": "int", "doc": "Cresce monotonicamente por canal."},
+    {"name": "out_of_network", "type": "boolean"},
+    {"name": "pts_time", "type": "long", "doc": "PTS em ticks de 90kHz (MPEG-TS). Long: pode exceder int32."},
+    {"name": "wallclock", "type": "string", "doc": "ISO-8601 UTC (ms)."},
+    {"name": "duration_s", "type": "int"},
+    {"name": "break_type", "type": {
+       "type": "enum", "name": "BreakType",
+       "symbols": ["commercial", "program_boundary", "blackout"]
+     }}
+  ]
+}

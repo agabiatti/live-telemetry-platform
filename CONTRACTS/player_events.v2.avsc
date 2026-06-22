@@ -1,0 +1,46 @@
+{
+  "type": "record",
+  "name": "PlayerEvent",
+  "namespace": "com.challenge.lts.player",
+  "doc": "Stream A — telemetria de player. Schema v2: adiciona network_type (BACKWARD-compatible com v1).",
+  "fields": [
+    {"name": "event_id", "type": "string"},
+    {"name": "session_id", "type": "string"},
+    {"name": "user_id", "type": "string", "doc": "Anonimizado na origem (LGPD)."},
+    {"name": "timestamp", "type": "string", "doc": "Event-time ISO-8601 UTC (ms). Clock skew ±5s por device."},
+    {"name": "event_type", "type": "string"},
+    {"name": "content_id", "type": "string"},
+    {"name": "is_live", "type": "boolean"},
+    {"name": "device", "type": {
+      "type": "record", "name": "Device",
+      "fields": [
+        {"name": "type", "type": "string"},
+        {"name": "model", "type": "string"},
+        {"name": "os", "type": "string"},
+        {"name": "app_version", "type": "string"}
+      ]
+    }},
+    {"name": "geo", "type": {
+      "type": "record", "name": "Geo",
+      "fields": [
+        {"name": "region", "type": "string"},
+        {"name": "state", "type": "string"},
+        {"name": "city", "type": "string"},
+        {"name": "isp", "type": "string"}
+      ]
+    }},
+    {"name": "cdn", "type": "string"},
+    {"name": "bitrate_kbps", "type": "int"},
+    {"name": "buffer_length_ms", "type": "int"},
+    {"name": "playhead_position_s", "type": "int"},
+    {"name": "error_code", "type": ["null", "string"], "default": null},
+
+    {"name": "schema_version", "type": "string", "default": "v1",
+     "doc": "Redundante de propósito: a versão canônica é o schema-id no fio (registry). Mantido para debug/inspeção."},
+    {"name": "network_type", "type": {
+       "type": "enum", "name": "NetworkType", "namespace": "com.challenge.lts.player",
+       "symbols": ["wifi", "cellular", "ethernet", "unknown"], "default": "unknown"
+     }, "default": "unknown",
+     "doc": "Adicionado em v2. Default garante BACKWARD: reader v2 lê dado v1 preenchendo 'unknown'."}
+  ]
+}

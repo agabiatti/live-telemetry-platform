@@ -1,0 +1,38 @@
+{
+  "type": "record",
+  "name": "PlayerEvent",
+  "namespace": "com.challenge.lts.player",
+  "doc": "Stream A — telemetria de player (CMCD-like). Schema v1 (base).",
+  "fields": [
+    {"name": "event_id", "type": "string", "doc": "Chave de deduplicação. Duplicatas (~1%) repetem este id."},
+    {"name": "session_id", "type": "string", "doc": "Chave de sessionização e particionamento do tópico."},
+    {"name": "user_id", "type": "string", "doc": "Anonimizado na origem (LGPD)."},
+    {"name": "timestamp", "type": "string", "doc": "Event-time ISO-8601 UTC (ms). Pode ter clock skew ±5s consistente por device."},
+    {"name": "event_type", "type": "string", "doc": "video_start|video_end|heartbeat|buffer_start|buffer_end|bitrate_switch|ad_start|ad_end|error|seek(reservado). String para extensibilidade."},
+    {"name": "content_id", "type": "string"},
+    {"name": "is_live", "type": "boolean"},
+    {"name": "device", "type": {
+      "type": "record", "name": "Device",
+      "fields": [
+        {"name": "type", "type": "string"},
+        {"name": "model", "type": "string"},
+        {"name": "os", "type": "string"},
+        {"name": "app_version", "type": "string"}
+      ]
+    }},
+    {"name": "geo", "type": {
+      "type": "record", "name": "Geo",
+      "fields": [
+        {"name": "region", "type": "string"},
+        {"name": "state", "type": "string"},
+        {"name": "city", "type": "string"},
+        {"name": "isp", "type": "string"}
+      ]
+    }},
+    {"name": "cdn", "type": "string"},
+    {"name": "bitrate_kbps", "type": "int"},
+    {"name": "buffer_length_ms", "type": "int"},
+    {"name": "playhead_position_s", "type": "int"},
+    {"name": "error_code", "type": ["null", "string"], "default": null}
+  ]
+}

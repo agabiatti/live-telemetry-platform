@@ -1,0 +1,26 @@
+{
+  "type": "record",
+  "name": "ContentMetadata",
+  "namespace": "com.challenge.lts.content",
+  "doc": "Dataset C — catálogo de conteúdo (slowly-changing dimension).",
+  "fields": [
+    {"name": "content_id", "type": "string"},
+    {"name": "title", "type": "string"},
+    {"name": "genre", "type": "string", "doc": "Pool extensível (sports, telenovela, news, ...). String, não enum."},
+    {"name": "is_live", "type": "boolean"},
+    {"name": "is_premium", "type": "boolean"},
+    {"name": "scheduled_start_utc", "type": "string"},
+    {"name": "scheduled_end_utc", "type": "string"},
+    {"name": "rights_window_start", "type": "string"},
+    {"name": "rights_window_end", "type": "string"},
+    {"name": "rights_territories", "type": {"type": "array", "items": "string"}},
+    {"name": "classification", "type": "string", "doc": "L/10/12/14/16/18. String: símbolos numéricos são inválidos como enum Avro."},
+    {"name": "ad_pod_policy", "type": "string"},
+    {"name": "language", "type": "string"},
+    {"name": "duration_min", "type": "int"},
+    {"name": "eidr_id", "type": "string"},
+    {"name": "gracenote_id", "type": "string"},
+    {"name": "created_at", "type": "string"},
+    {"name": "updated_at", "type": "string"}
+  ]
+}
