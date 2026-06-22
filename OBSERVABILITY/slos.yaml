@@ -1,0 +1,332 @@
+# =============================================================================
+# slos.yaml — SLOs de dados da live-telemetry-platform
+# =============================================================================
+# Contrato declarativo de qualidade de dados do pipeline de telemetria de live.
+# Cobre as 4 dimensões exigidas (freshness, volume, schema, distribution/quality).
+# O detector multi-burn-rate (DESIGN §6) CONSOME o SLO de rebuffering daqui como
+# budget — não redefine threshold próprio (object: slo_rebuffering_cdn).
+#
+# STATUS de cada item (campo `status:`):
+#   - implemented -> o código emite/executa este check HOJE (rastreável a arquivo).
+#   - spec        -> SLO/target acordado, automação do check ainda PENDENTE (roadmap).
+# Honestidade > cobertura: este arquivo declara o contrato de qualidade alvo; só os
+# itens `implemented` rodam na entrega atual. Inventário consolidado no README.md.
+#
+# Nomes de métrica casam com src/live_telemetry/common/metrics.py (fonte única das
+# fórmulas): rebuffering_ratio, error_rate, avg_bitrate_kbps, watch_ms,
+# exit_before_video_start, error_count.
+#
+# Convenções:
+#   - severity: page  -> acorda on-call (impacto a consumidor em tempo real)
+#               ticket -> abre incidente em horário comercial
+#               warn   -> sinal de degradação, sem paginar
+#   - window: janela de avaliação em EVENT-TIME (salvo annotation explícita)
+#   - owner: time responsável pela resposta ao romper o SLO
+# =============================================================================
+
+version: 1
+meta:
+  service: live-telemetry-platform
+  scope: "slice vertical — evento de ~105 min (Operação Maracanã), template reutilizável"
+  clock: event-time
+  notes: >-
+    O batch (Gold) é a fonte da verdade; o Silver (speed) é aproximação
+    descartável (Lambda, DESIGN §2). SLOs de Silver toleram aproximação por
+    design; SLOs de Gold exigem exatidão/idempotência.
+
+# -----------------------------------------------------------------------------
+# 1) FRESHNESS — quão atual está o dado
+# -----------------------------------------------------------------------------
+freshness:
+  - name: silver_watermark_lag
+    status: spec        # lag ainda não emitido; só watermark_delay_s no config
+    dimension: freshness
+    description: >-
+      Atraso do watermark do Silver em relação ao relógio de processamento
+      (watermark_lag = now - W). Sinaliza estado preso (sessão ociosa travando
+      o min global) ou backlog drenando após broker-down. Runtime no streaming.
+    metric: watermark_lag_seconds
+    layer: silver
+    runtime: true
+    target:
+      comparator: "<="
+      value: 90
+      unit: seconds
+      objective: "p95 do watermark_lag <= 90s na janela"
+    window: 5m
+    severity: page
+    owner: streaming-oncall
+
+  - name: late_dropped
+    status: implemented # silver/dataflow.py: op.inspect_debug sobre wout.late -> log.warning
+    dimension: freshness
+    description: >-
+      Eventos que chegam à janela além do system_wait (EventClock) e caem no side
+      output `wout.late`. Hoje EMITIDOS como log estruturado `late_dropped` (runtime).
+      NÃO é perda real: o Gold reconcilia esses late no período fechado (DESIGN §7);
+      pico sustentado denuncia backlog drenando pós broker-down (RUNBOOK incidente A).
+    metric: late_dropped_count
+    layer: silver
+    runtime: true
+    target:
+      comparator: "<="
+      value: 0.02      # alvo informativo: late_dropped / total <= 2% em regime normal
+      unit: ratio
+      objective: "fração de late descartados baixa fora de outage; reconciliado no Gold"
+    window: 5m
+    severity: warn
+    owner: streaming-oncall
+
+  - name: ingestion_lag
+    status: spec        # ingestion_time carimbado no Bronze; p95 ainda não medido
+    dimension: freshness
+    description: >-
+      Defasagem entre ingestion_time (carimbado no Bronze na chegada) e
+      event_time do device (ingestion_time - event_time). Captura clock skew
+      do device (±5s esperado) e atraso de transporte; pico sustentado indica
+      late massivo (ex.: replay pós broker-down).
+    metric: ingestion_minus_event_seconds
+    layer: bronze
+    runtime: false
+    target:
+      comparator: "<="
+      value: 30
+      unit: seconds
+      objective: "p95 (ingestion_time - event_time) <= 30s"
+    window: 5m
+    severity: warn
+    owner: ingestion
+
+  - name: gold_freshness
+    status: spec        # dbt source freshness não configurado em sources.yml
+    dimension: freshness
+    description: >-
+      Idade do mart Gold mais recente (now - max(run_finished_at) em _gold_runs).
+      Garante que a reconciliação batch do dia anterior fechou no SLA financeiro
+      (dia seguinte). Avaliado como dbt source freshness.
+    metric: gold_run_age_hours
+    layer: gold
+    runtime: false
+    target:
+      comparator: "<="
+      value: 26
+      unit: hours
+      objective: "Gold do período fechado disponível até 26h após o corte"
+    window: 24h
+    severity: ticket
+    owner: analytics-eng
+
+# -----------------------------------------------------------------------------
+# 2) VOLUME — quantidade de dado vs esperado
+# -----------------------------------------------------------------------------
+volume:
+  - name: event_count_vs_baseline
+    status: spec        # contagem por janela vs baseline ainda não emitida
+    dimension: volume
+    description: >-
+      Contagem de eventos por janela de 1 min vs baseline esperado do evento.
+      Queda abrupta = producer/broker parado; pico = tempestade/duplicação.
+      Banda relativa, não valor absoluto (template event-agnóstico).
+    metric: event_count_window
+    layer: silver
+    runtime: true
+    target:
+      comparator: "within_band"
+      lower_pct: -40    # queda > 40% vs baseline da janela => rompe
+      upper_pct: 200    # pico > 3x => rompe
+      baseline: rolling_15m_median
+      objective: "contagem por janela dentro de [-40%, +200%] do baseline"
+    window: 1m
+    severity: page
+    owner: ingestion
+
+  - name: dedupe_dropped_ratio
+    status: spec        # dedupe roda (silver/dedupe.py) mas is_dup é filtrado sem contador
+    dimension: volume
+    description: >-
+      Razão de eventos descartados pelo dedupe set do Silver
+      (dedupe_dropped_count / total_in). Baseline conhecido ~1% (duplicatas
+      injetadas pelo at-least-once do broker). Acima do teto = dup patológica
+      ou re-emit em loop; Gold faz o dedupe global definitivo de qualquer forma.
+    metric: dedupe_dropped_ratio
+    layer: silver
+    runtime: true
+    target:
+      comparator: "<="
+      value: 0.05      # 5% — folga sobre o ~1% esperado
+      unit: ratio
+      objective: "dedupe_dropped_ratio <= 5% (esperado ~1%)"
+    window: 5m
+    severity: ticket
+    owner: streaming-oncall
+
+# -----------------------------------------------------------------------------
+# 3) SCHEMA — conformidade de contrato (Avro + Schema Registry, compat BACKWARD)
+# -----------------------------------------------------------------------------
+# A verdade da versão é o schema-id no fio (Confluent wire-format), não o campo
+# in-band schema_version (CONTRACTS/README.md).
+schema:
+  - name: schema_v2_share
+    status: spec        # share de v2 ainda não computado no Bronze
+    dimension: schema
+    description: >-
+      Percentual de mensagens player_events decodificadas com o schema v2
+      (resolvido pelo schema-id no fio). Acompanha o rollout de network_type
+      (F6). Esperado baixo (~0,5% no gerador atual); a queda a zero após um
+      rollout anunciado sinaliza producer não atualizado.
+    metric: schema_v2_pct
+    layer: ingestion
+    runtime: false
+    target:
+      comparator: ">="
+      value: 0.0       # informativo no baseline atual; elevar após rollout v2
+      unit: ratio
+      objective: "acompanhar share de v2; alertar em desvio do rollout planejado"
+    window: 15m
+    severity: warn
+    owner: contracts
+
+  - name: registry_incompatible_reject_rate
+    status: implemented # gate ATIVO: registry.set_backward fixa compat BACKWARD por
+                        # subject (contracts/registry.py); incompatível é rejeitado no
+                        # register. A taxa em si não é amostrada — é um gate, não métrica.
+    dimension: schema
+    description: >-
+      Taxa com que o Schema Registry REJEITA registro de schema incompatível
+      sob compat BACKWARD (is_compatible:false — comprovado: campo novo sem
+      default é rejeitado). Esperado 0% em operação normal; qualquer rejeição
+      = tentativa de schema drift barrada no contrato (ver RUNBOOK incidente B).
+    metric: registry_reject_incompatible_rate
+    layer: contracts
+    runtime: false
+    target:
+      comparator: "=="
+      value: 0.0
+      unit: ratio
+      objective: "0 rejeições de incompatibilidade em produção (drift barrado no CI)"
+    window: 24h
+    severity: ticket
+    owner: contracts
+
+# -----------------------------------------------------------------------------
+# 4) DISTRIBUTION / QUALITY — saúde estatística da telemetria
+# -----------------------------------------------------------------------------
+distribution:
+  - name: slo_rebuffering_cdn
+    status: implemented # consumido como budget pelo detector multi-burn-rate (alerting.py)
+    dimension: distribution
+    description: >-
+      QoE: rebuffering_ratio = rebuffer_ms / (rebuffer_ms + watch_ms), por CDN.
+      Avaliado por CDN ATIVA (f(cdn)); nenhuma CDN é hardcoded. O detector
+      multi-burn-rate (abaixo) consome ESTE SLO como budget.
+    metric: rebuffering_ratio
+    layer: silver
+    runtime: true
+    group_by: [cdn]
+    target:
+      comparator: "<="
+      value: 0.01      # SLO <= 1%
+      unit: ratio
+      objective: "rebuffering_ratio <= 1% por CDN"
+    window: 5m
+    severity: page
+    owner: product-qoe
+
+  - name: slo_error_rate_cdn
+    status: spec        # error_rate é computado (metrics.finalize) mas não gateado/alertado
+    dimension: distribution
+    description: >-
+      QoE: error_rate = error_count / events, por CDN. Avaliado por CDN ativa.
+      Consumido pelo detector multi-burn-rate como budget de erro.
+    metric: error_rate
+    layer: silver
+    runtime: true
+    group_by: [cdn]
+    target:
+      comparator: "<="
+      value: 0.01      # SLO <= 1%
+      unit: ratio
+      objective: "error_rate <= 1% por CDN"
+    window: 5m
+    severity: page
+    owner: product-qoe
+
+  - name: silver_gold_divergence
+    status: spec        # cross-check Silver×Gold ainda não materializado como dbt test
+    dimension: distribution
+    description: >-
+      Divergência relativa entre métrica do Silver (speed) e do Gold (batch
+      reconciliado) para o mesmo período fechado e mesma chave (cdn × janela).
+      Silver e Gold DIVERGEM de propósito (late, escopo de dedupe, recovery —
+      DESIGN §7); acima do limiar deixa de ser semântica e vira BUG na fórmula
+      duplicada (Bytewax vs dbt).
+    metric: silver_vs_gold_delta_pct
+    layer: gold
+    runtime: false
+    compare:
+      metrics: [rebuffering_ratio, error_rate, avg_bitrate_kbps]
+    target:
+      comparator: "<="
+      value: 0.05      # 5% de delta relativo
+      unit: ratio
+      objective: "|Silver - Gold| / Gold <= 5% por métrica reconciliada"
+    window: per_closed_period
+    severity: ticket
+    owner: analytics-eng
+
+# =============================================================================
+# ALERTA MULTI-BURN-RATE — REUSA os SLOs de distribution acima (DESIGN §6)
+# =============================================================================
+# burn_rate = fração_ruim_observada / error_budget, onde error_budget = (1 - SLO).
+# O threshold normalizado vale para QUALQUER CDN — não há número mágico por CDN.
+# O detector é DINÂMICO: avalia f(cdn) para toda CDN ativa. cdn-b dispara nesta
+# seed porque seus dados cruzam o critério (burst injetado min 60-75: error_rate
+# ~100x, rebuffering ~16x), NÃO porque o código a conhece. NÃO hardcode cdn-b.
+multi_burn_rate:
+  status: implemented         # src/live_telemetry/silver/alerting.py (BurnRateConfig)
+  evaluation:
+    grouping: [cdn]            # uma avaliação independente por CDN ativa
+    clock: event-time
+    # IMPORTANTE: a fração-ruim que o detector consome HOJE é APENAS o
+    # rebuffering_ratio (rebuffer_ms / (rebuffer_ms + watch_ms)). Escolhido porque
+    # a degradação injetada é primariamente de buffering (~9-16x => burn ~8),
+    # enquanto error_rate por minuto é modesto (~2x, erro é terminal/esparso).
+    # error_rate fica como SINAL ALTERNATIVO (computado em metrics.finalize, ainda
+    # não gateado). Ver alerting.py docstring.
+    references:                # budget vem DO SLO acima (sem redefinição)
+      rebuffering_ratio: slo_rebuffering_cdn # budget = 0.01 (BurnRateConfig.budget)
+      # error_rate: slo_error_rate_cdn       # roadmap: 2º detector sobre error_rate
+    min_sample_gate:
+      events_min: 50          # n_min em alerting.py: abaixo disso não avalia
+                              # (evita ruído em CDN de baixo tráfego — DESIGN §6)
+    hysteresis:
+      fire_consecutive: 2     # precisa romper em 2 avaliações para acender
+      clear_consecutive: 3    # precisa normalizar em 3 para apagar (anti-flap)
+
+  # Thresholds calibrados à severidade injetada nesta seed (DESIGN §6); em produção
+  # derivariam do SLO + latência de detecção desejada (tabela SRE). burn_rate =
+  # (rebuffer_ms/total) / budget. No burst min 60-75 o rebuffering vai a ~8% => burn ~8.
+  tiers:
+    # Multi-window AND: janela longa (significância) E janela curta ("ainda
+    # acontecendo" -> auto-resolve rápido na recuperação).
+    - name: fast
+      purpose: burst súbito (rebuffering ~8% => burn_rate ~8)
+      severity: page
+      long_window: 5m
+      short_window: 1m
+      burn_rate: 4            # >= 4 (alerting.py fast_threshold)
+      condition: "burn_rate(long) >= 4 AND burn_rate(short) >= 4"
+
+    - name: slow
+      purpose: degradação lenta sustentada de buffering
+      severity: ticket
+      long_window: 30m
+      short_window: 5m
+      burn_rate: 2            # >= 2 (alerting.py slow_threshold)
+      condition: "burn_rate(long) >= 2 AND burn_rate(short) >= 2"
+
+  outputs:
+    # O dashboard lê o CONJUNTO de CDNs em alerta e destaca quem estiver lá;
+    # não conhece cdn-b.
+    emits: alerting_cdns_set
+    consumer: serving/streamlit
