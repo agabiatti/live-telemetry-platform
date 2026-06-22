@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+data/raw/*
+data/bronze/*
+data/silver/*
+data/gold/*
+!data/raw/.gitkeep
+.duckdb
+*.duckdb
+dbt_packages/
+target/
+logs/
+.pytest_cache/
+.DS_Store
