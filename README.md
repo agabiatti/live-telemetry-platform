@@ -55,6 +55,11 @@ make producer      # Publica as mensagens no RedPanda
 
 make bronze        # Bronze Delta
 make gold          # Gold (dbt → Parquet)
+
+# Caso rode para um número maior de sessões, é necessário rodar o compact para diminuir o
+# número de arquivos e melhorar a performance de leitura da silver.
+
+make compact
 ```
 
 **Persiste** em `./data/` (bind-mount): Bronze/Silver/Gold + `cdn_alerts`. **Não persiste:**
